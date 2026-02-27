@@ -1,4 +1,3 @@
-import subprocess
 import tempfile
 import os
 import time
@@ -7,134 +6,99 @@ class ExecutionEngine:
     def __init__(self, max_time=10):
         self.max_execution_time = max_time
         self.execution_log = []
-    
-    def create_execution_environment(self, code_content):
-        environment_code = """
-local start_moment = os.clock()
 
-local function monitor_output(...)
-    local output_args = {...}
-    local combined_output = ""
-    for index, value in ipairs(output_args) do
-        combined_output = combined_output .. tostring(value)
-        if index < #output_args then
-            combined_output = combined_output .. "\\t"
-        end
-    end
-    print("[EXECUTION OUTPUT] " .. combined_output)
-end
-
-local original_print = print
-print = monitor_output
-
-""" + code_content + """
-
-print = original_print
-local end_moment = os.clock()
-print(string.format("[EXECUTION COMPLETE] Duration: %.3f seconds", end_moment - start_moment))
-"""
-        return environment_code
-    
     def execute_code_safely(self, lua_code, use_environment=True):
-        if use_environment:
-            lua_code = self.create_execution_environment(lua_code)
-        
-        temporary_file = None
+        start_time = time.time()
         try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False) as f:
-                f.write(lua_code)
-                temporary_file = f.name
-            
-            start_time = time.time()
-            
-            execution_result = subprocess.run(
-                ['lua', temporary_file],
-                capture_output=True,
-                text=True,
-                timeout=self.max_execution_time
+            import lupa
+            from lupa import LuaRuntime
+
+            lua = LuaRuntime(unpack_returned_tuples=True)
+
+            output_lines = []
+
+            # Redireciona o print do Lua
+            lua.globals().print = lambda *args: output_lines.append(
+                "\t".join(str(a) for a in args)
             )
-            
-            elapsed_time = time.time() - start_time
-            
-            result_record = {
-                'successful': execution_result.returncode == 0,
-                'output_text': execution_result.stdout,
-                'error_text': execution_result.stderr,
-                'exit_code': execution_result.returncode,
-                'duration': elapsed_time,
+
+            # Remove funções perigosas
+            lua.execute("os.execute = nil")
+            lua.execute("io.popen = nil")
+            lua.execute("require = nil")
+            lua.execute("dofile = nil")
+            lua.execute("loadfile = nil")
+
+            lua.execute(lua_code)
+
+            elapsed = time.time() - start_time
+            output_text = "\n".join(output_lines)
+
+            result = {
+                'successful': True,
+                'output_text': output_text,
+                'error_text': '',
+                'exit_code': 0,
+                'duration': elapsed,
                 'timed_out': False
             }
-            
-            self.execution_log.append(result_record)
-            return result_record
-            
-        except subprocess.TimeoutExpired:
-            result_record = {
+
+        except ImportError:
+            elapsed = time.time() - start_time
+            result = {
                 'successful': False,
                 'output_text': '',
-                'error_text': 'Execution timeout reached',
+                'error_text': 'Biblioteca lupa não instalada. Adicione lupa ao requirements.txt',
                 'exit_code': -1,
-                'duration': self.max_execution_time,
-                'timed_out': True
+                'duration': elapsed,
+                'timed_out': False
             }
-            self.execution_log.append(result_record)
-            return result_record
-            
-        except Exception as error_instance:
-            result_record = {
+        except Exception as e:
+            elapsed = time.time() - start_time
+            result = {
                 'successful': False,
                 'output_text': '',
-                'error_text': str(error_instance),
+                'error_text': str(e),
                 'exit_code': -1,
-                'duration': 0,
+                'duration': elapsed,
                 'timed_out': False,
                 'error_occurred': True
             }
-            self.execution_log.append(result_record)
-            return result_record
-            
-        finally:
-            if temporary_file and os.path.exists(temporary_file):
-                try:
-                    os.remove(temporary_file)
-                except:
-                    pass
-    
+
+        self.execution_log.append(result)
+        return result
+
     def process_script_file(self, file_path):
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 file_content = f.read()
-            
+
             execution_result = self.execute_code_safely(file_content)
-            
-            analysis_result = {
+
+            return {
                 'target_file': file_path,
                 'content_size': len(file_content),
                 'execution_details': execution_result,
                 'log_entries': len(self.execution_log)
             }
-            
-            return analysis_result
-            
-        except Exception as error_instance:
+
+        except Exception as e:
             return {
                 'target_file': file_path,
-                'error_message': str(error_instance)
+                'error_message': str(e)
             }
-    
+
     def get_execution_summary(self):
         if not self.execution_log:
-            return "No execution records available"
-        
-        successful_count = sum(1 for record in self.execution_log if record['successful'])
+            return "Nenhuma execução registrada"
+
+        successful_count = sum(1 for r in self.execution_log if r['successful'])
         total_count = len(self.execution_log)
-        
-        summary_data = {
+
+        return {
             'total_executions': total_count,
             'successful_executions': successful_count,
             'success_percentage': (successful_count / total_count * 100) if total_count > 0 else 0,
             'average_duration': sum(r['duration'] for r in self.execution_log) / total_count if total_count > 0 else 0,
             'timeout_count': sum(1 for r in self.execution_log if r.get('timed_out', False))
         }
-        
-        return summary_data
