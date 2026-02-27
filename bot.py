@@ -23,7 +23,7 @@ except ImportError as e:
 # ─────────────────────────────────────────────────────────────
 #  Configuração do bot
 # ─────────────────────────────────────────────────────────────
-TOKEN       = "SEU_TOKEN_AQUI"
+TOKEN       = os.environ.get("TOKEN")
 PREFIX      = "."
 MAX_SIZE    = 500_000   # 500 KB
 
