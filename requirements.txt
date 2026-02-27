@@ -1,2 +1,4 @@
 discord.py[voice]>=2.4.0
 lupa
+yt-dlp
+PyNaCl
