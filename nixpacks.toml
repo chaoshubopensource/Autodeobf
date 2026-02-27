@@ -1,2 +1,2 @@
 [phases.setup]
-nixPkgs = ["lua5_4"]
+aptPkgs = ["lua5.4"]
